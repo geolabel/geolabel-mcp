@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Any
 
 import httpx
@@ -24,6 +25,8 @@ import httpx
 # Pydantic (used by FastMCP to introspect tool signatures) requires
 # typing_extensions.TypedDict on Python < 3.12.
 from typing_extensions import TypedDict
+
+from . import _metrics
 
 # ---------------------------------------------------------------------------
 # Configuration (captured at import time)
@@ -168,39 +171,49 @@ async def get(path: str, params: dict[str, Any]) -> dict[str, Any]:
     """GET `path` on the shared client and translate any failure into an
     `ErrorEnvelope`. Returns the raw JSON dict on success.
 
+    Records latency (network only) and error counts in `_metrics`.
+
     `path` is a path on the configured base URL (e.g. "/label"). Callers
     handle endpoint-specific 422 messaging by inspecting the returned
     envelope and replacing it if needed.
     """
     config_err = _config_error()
     if config_err is not None:
+        _metrics.record_client_error("config")
         return dict(config_err)
 
     client = _get_client()
+    started = time.monotonic()
 
     try:
         response = await _request_with_retry(client, path, params)
         response.raise_for_status()
+        _metrics.record_latency_ms((time.monotonic() - started) * 1000)
         return response.json()  # type: ignore[no-any-return]
 
     except httpx.HTTPStatusError as exc:
+        _metrics.record_latency_ms((time.monotonic() - started) * 1000)
         status = exc.response.status_code
+        _metrics.record_http_error(status)
         message = STATUS_MESSAGES.get(status, f"GeoLabel API returned HTTP {status}.")
         return {"error": message, "_status": status}
 
     except httpx.TimeoutException:
-        return {"error": ("Request timed out. The service may be briefly slow — try again.")}
+        _metrics.record_client_error("timeout")
+        return {"error": "Request timed out. The service may be briefly slow - try again."}
 
     except httpx.HTTPError as exc:
         # Network / transport errors. Include only the exception class so
         # we never leak partial response bodies, header values, or the API
         # key (httpx normally redacts auth, but defence in depth).
+        _metrics.record_client_error("network")
         return {"error": f"Network error ({type(exc).__name__})."}
 
     except Exception as exc:
         # Final safety net: never let an unexpected exception bubble up
         # to the MCP transport. The class name is enough for debugging
         # without leaking the (potentially sensitive) message text.
+        _metrics.record_client_error("unexpected")
         return {"error": f"Unexpected error ({type(exc).__name__})."}
 
 

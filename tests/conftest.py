@@ -18,6 +18,7 @@ from types import ModuleType
 import pytest
 
 import geolabel_mcp._client as _client_module
+import geolabel_mcp._metrics as _metrics_module
 import geolabel_mcp.server as _server_module
 
 
@@ -25,6 +26,7 @@ import geolabel_mcp.server as _server_module
 class ServerHandle:
     server: ModuleType
     client: ModuleType
+    metrics: ModuleType
 
 
 def _reload(
@@ -50,10 +52,11 @@ def _reload(
     # pytest-asyncio versions.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ResourceWarning)
+        importlib.reload(_metrics_module)
         importlib.reload(_client_module)
         importlib.reload(_server_module)
 
-    return ServerHandle(server=_server_module, client=_client_module)
+    return ServerHandle(server=_server_module, client=_client_module, metrics=_metrics_module)
 
 
 @pytest.fixture

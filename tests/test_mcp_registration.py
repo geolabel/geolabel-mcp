@@ -16,15 +16,15 @@ async def test_server_metadata(server):
     assert "GeoLabel" in server.mcp.instructions
 
 
-async def test_tool_is_registered(server):
+async def test_tools_are_registered(server):
     tools = await server.mcp.list_tools()
-    names = [t.name for t in tools]
-    assert names == ["get_location_label"]
+    names = sorted(t.name for t in tools)
+    assert names == ["geolabel_stats", "get_location_label"]
 
 
-async def test_tool_input_schema(server):
-    [tool] = await server.mcp.list_tools()
-    schema = tool.inputSchema
+async def test_get_location_label_input_schema(server):
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    schema = tools["get_location_label"].inputSchema
 
     assert schema["type"] == "object"
     assert set(schema["required"]) == {"lat", "lng"}
@@ -36,9 +36,19 @@ async def test_tool_input_schema(server):
     assert props["radius"]["default"] == 100
 
 
-async def test_tool_description_documents_response_fields(server):
-    [tool] = await server.mcp.list_tools()
-    description = tool.description or ""
+async def test_geolabel_stats_input_schema(server):
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    schema = tools["geolabel_stats"].inputSchema
+
+    # Stats takes no inputs.
+    assert schema["type"] == "object"
+    assert schema.get("required", []) == []
+    assert schema.get("properties", {}) == {}
+
+
+async def test_get_location_label_description_documents_response_fields(server):
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    description = tools["get_location_label"].description or ""
     # A few key response field names that clients rely on.
     for field in ("label", "category", "is_open", "opens_at", "closes_at", "cached"):
         assert field in description, f"missing {field!r} in tool description"

@@ -22,9 +22,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: GIS",
 ]
 dependencies = [
-    "mcp[cli]>=1.0.0",
-    "httpx[http2]>=0.27.0",
-    "typing_extensions>=4.7",
+    "mcp[cli]>=1.0.0,<2",
+    "httpx[http2]>=0.27.0,<1",
+    "typing_extensions>=4.7,<5",
 ]
 
 [project.optional-dependencies]

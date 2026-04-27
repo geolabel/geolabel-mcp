@@ -23,6 +23,13 @@
           "isRequired": true,
           "isSecret": true,
           "format": "string"
+        },
+        {
+          "name": "GEOLABEL_BASE_URL",
+          "description": "Override the API base URL (default https://api.geolabel.dev). Must use https:// except for http://localhost or http://127.0.0.1 for local development.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
         }
       ]
     }

@@ -1,0 +1,17 @@
+.git
+.github
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+.coverage.*
+htmlcov
+coverage.xml
+dist
+build
+__pycache__
+*.py[cod]
+tests
+.pre-commit-config.yaml
+SECURITY.md
+CONTRIBUTING.md
