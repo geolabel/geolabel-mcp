@@ -26,6 +26,14 @@ dependencies = [
     "httpx>=0.27.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "coverage[toml]>=7.4",
+]
+
 [project.urls]
 Homepage = "https://geolabel.dev"
 Documentation = "https://geolabel.dev/quickstart.html"
@@ -37,3 +45,19 @@ geolabel-mcp = "geolabel_mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["geolabel_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["geolabel_mcp"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
