@@ -6,20 +6,18 @@ MCP-compatible assistant. Wraps the GeoLabel API (geolabel.dev).
 
 Configuration (environment variables):
     GEOLABEL_API_KEY   Your GeoLabel API key (required). Get one free at geolabel.dev.
-    GEOLABEL_BASE_URL  Override the API base URL (optional).
+    GEOLABEL_BASE_URL  Override the API base URL (optional, must be https://).
+
+Privacy: no coordinates are logged or persisted by this server. They live
+in process memory for the duration of one request and are then discarded.
 """
 
-import os
+from __future__ import annotations
 
-import httpx
 from mcp.server.fastmcp import FastMCP
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-_API_KEY  = os.getenv("GEOLABEL_API_KEY", "")
-_BASE_URL = os.getenv("GEOLABEL_BASE_URL", "https://api.geolabel.dev").rstrip("/")
+from . import _client
+from ._client import ErrorEnvelope, LocationLabel
 
 # ---------------------------------------------------------------------------
 # Server
@@ -44,8 +42,26 @@ mcp = FastMCP(
 # Tools
 # ---------------------------------------------------------------------------
 
+
+def _validate_inputs(lat: float, lng: float, radius: int) -> ErrorEnvelope | None:
+    """Fail-fast input bounds checks.
+
+    These run before any network call so clearly-invalid coordinates
+    never leave the machine and we save a round-trip to the server.
+    """
+    if not -90.0 <= lat <= 90.0:
+        return {"error": "Latitude must be between -90 and 90."}
+    if not -180.0 <= lng <= 180.0:
+        return {"error": "Longitude must be between -180 and 180."}
+    if not 10 <= radius <= 500:
+        return {"error": "Radius must be between 10 and 500 metres."}
+    return None
+
+
 @mcp.tool()
-async def get_location_label(lat: float, lng: float, radius: int = 100) -> dict:
+async def get_location_label(
+    lat: float, lng: float, radius: int = 100
+) -> LocationLabel | ErrorEnvelope:
     """
     Identify a place from GPS coordinates and return its label, category,
     and live opening-hours status.
@@ -58,9 +74,9 @@ async def get_location_label(lat: float, lng: float, radius: int = 100) -> dict:
     Args:
         lat:    Latitude in decimal degrees (-90 to 90).
         lng:    Longitude in decimal degrees (-180 to 180).
-        radius: Search radius in metres. Smaller values pin to the nearest
-                place precisely; larger values cast a wider net.
-                Default 100 m, maximum 500 m.
+        radius: Search radius in metres (10-500). Smaller values pin to
+                the nearest place precisely; larger values cast a wider
+                net. Default 100 m.
 
     Returns a dict with:
         place           Raw venue name from OpenStreetMap (may include branch
@@ -86,73 +102,33 @@ async def get_location_label(lat: float, lng: float, radius: int = 100) -> dict:
         cached          true if place data was served from the 10-minute in-memory
                         cache. Hours fields are always recalculated live against
                         the current time, even on cache hits.
+
+    On error returns {"error": "<message>"}. Errors are safe to surface to
+    the end user and never contain the API key or raw exception details.
     """
-    if not _API_KEY:
+    validation_error = _validate_inputs(lat, lng, radius)
+    if validation_error is not None:
+        return validation_error
+
+    result = await _client.get("/label", params={"lat": lat, "lng": lng, "radius": radius})
+
+    # Endpoint-specific 422 message — generic STATUS_MESSAGES doesn't have
+    # the input context the user needs to fix their call.
+    if result.get("_status") == 422:
         return {
             "error": (
-                "GEOLABEL_API_KEY is not configured. "
-                "Get a free API key at https://geolabel.dev and add it to your "
-                "MCP server environment as GEOLABEL_API_KEY."
+                f"Invalid parameters: lat={lat}, lng={lng}, radius={radius}. "
+                "Latitude must be -90-90, longitude -180-180, radius 10-500."
             )
         }
-
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            r = await client.get(
-                f"{_BASE_URL}/label",
-                headers={"X-API-Key": _API_KEY},
-                params={"lat": lat, "lng": lng, "radius": radius},
-            )
-            r.raise_for_status()
-            return r.json()
-
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if status == 401:
-                return {
-                    "error": (
-                        "Invalid API key. Verify GEOLABEL_API_KEY or "
-                        "generate a new key at https://geolabel.dev."
-                    )
-                }
-            if status == 429:
-                return {
-                    "error": (
-                        "Rate limit reached. Upgrade your plan at "
-                        "https://geolabel.dev for higher limits."
-                    )
-                }
-            if status == 422:
-                return {
-                    "error": (
-                        f"Invalid parameters: lat={lat}, lng={lng}, radius={radius}. "
-                        "Latitude must be -90–90, longitude -180–180, radius 10–500."
-                    )
-                }
-            if status == 502:
-                return {
-                    "error": (
-                        "OpenStreetMap data is temporarily unavailable. "
-                        "Try again in a moment."
-                    )
-                }
-            return {"error": f"GeoLabel API returned HTTP {status}."}
-
-        except httpx.TimeoutException:
-            return {
-                "error": (
-                    "Request timed out after 15 s. "
-                    "The service may be briefly slow — try again."
-                )
-            }
-
-        except Exception as exc:  # noqa: BLE001
-            return {"error": f"Unexpected error: {exc}"}
+    result.pop("_status", None)
+    return result  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     mcp.run()
